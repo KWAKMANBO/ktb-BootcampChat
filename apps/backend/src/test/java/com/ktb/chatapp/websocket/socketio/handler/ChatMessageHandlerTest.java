@@ -14,6 +14,7 @@ import com.ktb.chatapp.service.RateLimitService;
 import com.ktb.chatapp.service.SessionService;
 import com.ktb.chatapp.service.SessionValidationResult;
 import com.ktb.chatapp.util.BannedWordChecker;
+import com.ktb.chatapp.websocket.socketio.ConnectedUsers;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import com.ktb.chatapp.websocket.socketio.ai.AiService;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -45,6 +46,7 @@ class ChatMessageHandlerTest {
     @Mock private SessionService sessionService;
     @Mock private BannedWordChecker bannedWordChecker;
     @Mock private RateLimitService rateLimitService;
+    @Mock private ConnectedUsers connectedUsers;
     private MeterRegistry meterRegistry = new SimpleMeterRegistry();
 
     private ChatMessageHandler handler;
@@ -62,14 +64,16 @@ class ChatMessageHandlerTest {
                         sessionService,
                         bannedWordChecker,
                         rateLimitService,
-                        meterRegistry);
+                        meterRegistry,
+                        connectedUsers);
     }
 
     @Test
     void handleChatMessage_blocksMessagesContainingBannedWords() {
         SocketIOClient client = mock(SocketIOClient.class);
         SocketUser socketUser = new SocketUser("user-1", "tester", "session-1", "socket-1");
-        when(client.get("user")).thenReturn(socketUser);
+        when(client.getSessionId()).thenReturn(java.util.UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        when(connectedUsers.getBySocketId("00000000-0000-0000-0000-000000000001")).thenReturn(socketUser);
 
         SessionValidationResult validResult = SessionValidationResult.valid(null);
         when(sessionService.validateSession(socketUser.id(), socketUser.authSessionId()))
