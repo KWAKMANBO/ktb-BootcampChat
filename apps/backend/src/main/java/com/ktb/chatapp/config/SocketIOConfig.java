@@ -6,10 +6,9 @@ import com.corundumstudio.socketio.SocketIOServer;
 import com.corundumstudio.socketio.annotation.SpringAnnotationScanner;
 import com.corundumstudio.socketio.namespace.Namespace;
 import com.corundumstudio.socketio.protocol.JacksonJsonSupport;
-import com.corundumstudio.socketio.store.MemoryStoreFactory;
+import com.corundumstudio.socketio.store.RedissonStoreFactory;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.ktb.chatapp.websocket.socketio.ChatDataStore;
-import com.ktb.chatapp.websocket.socketio.LocalChatDataStore;
+import org.redisson.api.RedissonClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -33,11 +32,13 @@ public class SocketIOConfig {
     private Integer port;
 
     @Bean(initMethod = "start", destroyMethod = "stop")
-    public SocketIOServer socketIOServer(AuthTokenListener authTokenListener) {
+    public SocketIOServer socketIOServer(
+            AuthTokenListener authTokenListener,
+            RedissonClient redissonClient) {
         com.corundumstudio.socketio.Configuration config = new com.corundumstudio.socketio.Configuration();
         config.setHostname(host);
         config.setPort(port);
-        
+
         var socketConfig = new SocketConfig();
         socketConfig.setReuseAddress(true);
         socketConfig.setTcpNoDelay(false);
@@ -54,13 +55,23 @@ public class SocketIOConfig {
         config.setUpgradeTimeout(10000);
 
         config.setJsonSupport(new JacksonJsonSupport(new JavaTimeModule()));
-        config.setStoreFactory(new MemoryStoreFactory()); // 단일노드 전용
 
-        log.info("Socket.IO server configured on {}:{} with {} boss threads and {} worker threads",
-                 host, port, config.getBossThreads(), config.getWorkerThreads());
+        // Use RedissonStoreFactory for multi-server support via Redis Pub/Sub
+        config.setStoreFactory(new RedissonStoreFactory(redissonClient));
+
+        String hostname = System.getenv("HOSTNAME") != null ? System.getenv("HOSTNAME") : "unknown";
+        log.info("🚀 [{}] Socket.IO server configured on {}:{} with Redis store for multi-server support",
+                 hostname, host, port);
         var socketIOServer = new SocketIOServer(config);
         socketIOServer.getNamespace(Namespace.DEFAULT_NAME).addAuthTokenListener(authTokenListener);
-        
+
+        socketIOServer.addConnectListener(client -> {
+            log.debug("🔌 [{}] New Socket.IO connection attempt | SocketID: {} | IP: {}",
+                    hostname,
+                    client.getSessionId(),
+                    client.getRemoteAddress());
+        });
+
         return socketIOServer;
     }
     
@@ -74,12 +85,5 @@ public class SocketIOConfig {
     @Role(ROLE_INFRASTRUCTURE)
     public BeanPostProcessor springAnnotationScanner(@Lazy SocketIOServer socketIOServer) {
         return new SpringAnnotationScanner(socketIOServer);
-    }
-    
-    // 인메모리 저장소, 단일 노드 환경에서만 사용
-    @Bean
-    @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
-    public ChatDataStore chatDataStore() {
-        return new LocalChatDataStore();
     }
 }

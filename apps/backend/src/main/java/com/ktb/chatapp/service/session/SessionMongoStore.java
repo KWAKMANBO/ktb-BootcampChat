@@ -4,13 +4,16 @@ import com.ktb.chatapp.model.Session;
 import com.ktb.chatapp.repository.SessionRepository;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
  * MongoDB implementation of SessionStore.
  * Uses SessionRepository for persistence.
+ * Active when session.store.type=mongodb
  */
 @Component
+@ConditionalOnProperty(name = "session.store.type", havingValue = "mongodb")
 @RequiredArgsConstructor
 public class SessionMongoStore implements SessionStore {
     

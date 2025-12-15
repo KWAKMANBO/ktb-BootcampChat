@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,9 @@ public class ConnectionLoginHandler {
     private final UserRooms userRooms;
     private final RoomJoinHandler roomJoinHandler;
     private final RoomLeaveHandler roomLeaveHandler;
+
+    @Value("${HOSTNAME:unknown}")
+    private String serverHostname;
 
     public ConnectionLoginHandler(
             SocketIOServer socketIOServer,
@@ -70,8 +74,13 @@ public class ConnectionLoginHandler {
             
             connectedUsers.set(userId, user);
 
-            log.info("Socket.IO user connected: {} ({}) - Total concurrent users: {}",
-                    getUserName(client), userId, connectedUsers.size());
+            log.info("✅ [{}] Socket.IO user connected: {} ({}) | SocketID: {} | IP: {} | Concurrent users: {}",
+                    serverHostname,
+                    getUserName(client),
+                    userId,
+                    client.getSessionId(),
+                    client.getRemoteAddress(),
+                    connectedUsers.size());
 
             client.joinRooms(Set.of("user:" + userId, "room-list"));
             
@@ -109,9 +118,13 @@ public class ConnectionLoginHandler {
             client.leaveRooms(Set.of("user:" + userId, "room-list"));
             client.del("user");
             client.disconnect();
-            
-            log.info("Socket.IO user disconnected: {} ({}) - Total concurrent users: {}",
-                    userName, userId, connectedUsers.size());
+
+            log.info("❌ [{}] Socket.IO user disconnected: {} ({}) | SocketID: {} | Concurrent users: {}",
+                    serverHostname,
+                    userName,
+                    userId,
+                    client.getSessionId(),
+                    connectedUsers.size());
         } catch (Exception e) {
             log.error("Error handling Socket.IO disconnection", e);
             client.sendEvent(ERROR, Map.of(
@@ -136,35 +149,41 @@ public class ConnectionLoginHandler {
     }
     
     /**
-     * TODO 멀티 클러스터에서 동작 안함 다중 노드의 경우 다른  노드에 접속된 사용자는 통보 불가함
-     * socketIOServer.getRoomOperations("user:" + userId) 로 처리 변경.
+     * Multi-server duplicate login notification using room-based broadcasting.
+     * Works across multiple nodes by broadcasting to user-specific room via Redis Pub/Sub.
      */
     private void notifyDuplicateLogin(SocketIOClient client, String userId) {
         var socketUser = connectedUsers.get(userId);
         if (socketUser == null) {
             return;
         }
-        String existingSocketId = socketUser.socketId();
-        SocketIOClient existingClient = socketIOServer.getClient(UUID.fromString(existingSocketId));
-        if (existingClient == null) {
-            return;
-        }
-        
-        // Send duplicate login notification
-        existingClient.sendEvent(DUPLICATE_LOGIN, Map.of(
+
+        // Broadcast to user-specific room (reaches all servers via Redis Pub/Sub)
+        String userRoom = "user:" + userId;
+
+        // Send immediate duplicate login notification
+        socketIOServer.getRoomOperations(userRoom).sendEvent(DUPLICATE_LOGIN, Map.of(
                 "type", "new_login_attempt",
                 "deviceInfo", client.getHandshakeData().getHttpHeaders().get("User-Agent"),
                 "ipAddress", client.getRemoteAddress().toString(),
                 "timestamp", System.currentTimeMillis()
         ));
-        
+
+        // Schedule session termination after 10 seconds
         new Thread(() -> {
             try {
                 Thread.sleep(Duration.ofSeconds(10));
-                existingClient.sendEvent(SESSION_ENDED, Map.of(
+                socketIOServer.getRoomOperations(userRoom).sendEvent(SESSION_ENDED, Map.of(
                         "reason", "duplicate_login",
                         "message", "다른 기기에서 로그인하여 현재 세션이 종료되었습니다."
                 ));
+
+                // Clean up old session data
+                String oldSocketId = socketUser.socketId();
+                SocketIOClient oldClient = socketIOServer.getClient(UUID.fromString(oldSocketId));
+                if (oldClient != null) {
+                    oldClient.disconnect();
+                }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 log.error("Error in duplicate login notification thread", e);

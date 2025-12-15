@@ -1,6 +1,7 @@
 package com.ktb.chatapp.model;
 
 import com.ktb.chatapp.service.SessionMetadata;
+import java.io.Serializable;
 import java.time.Instant;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -20,7 +21,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @CompoundIndexes({
     @CompoundIndex(name = "userId_sessionId_idx", def = "{'userId': 1, 'sessionId': 1}", unique = true)
 })
-public class Session {
+public class Session implements Serializable {
     public static final String SESSION_TTL = "30m";
 
     @Id
