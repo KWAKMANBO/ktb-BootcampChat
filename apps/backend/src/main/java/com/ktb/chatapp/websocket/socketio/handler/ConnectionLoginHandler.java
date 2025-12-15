@@ -65,8 +65,7 @@ public class ConnectionLoginHandler {
         
         try {
             notifyDuplicateLogin(client, userId);
-            client.set("user", user);
-            
+
             userRooms.get(userId).forEach(roomId -> {
                 // 재접속 시 기존 참여 방 재입장 처리
                 roomJoinHandler.handleJoinRoom(client, roomId);
@@ -116,7 +115,6 @@ public class ConnectionLoginHandler {
             }
 
             client.leaveRooms(Set.of("user:" + userId, "room-list"));
-            client.del("user");
             client.disconnect();
 
             log.info("❌ [{}] Socket.IO user disconnected: {} ({}) | SocketID: {} | Concurrent users: {}",
@@ -135,14 +133,14 @@ public class ConnectionLoginHandler {
     }
     
     private SocketUser getUserDto(SocketIOClient client) {
-        return client.get("user");
+        return connectedUsers.getBySocketId(client.getSessionId().toString());
     }
-    
+
     private String getUserId(SocketIOClient client) {
         SocketUser user = getUserDto(client);
         return user != null ? user.id() : null;
     }
-    
+
     private String getUserName(SocketIOClient client) {
         SocketUser user = getUserDto(client);
         return user != null ? user.name() : null;

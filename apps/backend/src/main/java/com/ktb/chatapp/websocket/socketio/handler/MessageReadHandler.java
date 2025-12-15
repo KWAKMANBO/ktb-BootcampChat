@@ -12,6 +12,7 @@ import com.ktb.chatapp.repository.MessageRepository;
 import com.ktb.chatapp.repository.RoomRepository;
 import com.ktb.chatapp.repository.UserRepository;
 import com.ktb.chatapp.service.MessageReadStatusService;
+import com.ktb.chatapp.websocket.socketio.ConnectedUsers;
 import com.ktb.chatapp.websocket.socketio.SocketUser;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
@@ -21,10 +22,6 @@ import org.springframework.stereotype.Component;
 
 import static com.ktb.chatapp.websocket.socketio.SocketIOEvents.*;
 
-/**
- * 메시지 읽음 상태 처리 핸들러
- * 메시지 읽음 상태 업데이트 및 브로드캐스트 담당
- */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "socketio.enabled", havingValue = "true", matchIfMissing = true)
@@ -36,6 +33,7 @@ public class MessageReadHandler {
     private final MessageRepository messageRepository;
     private final RoomRepository roomRepository;
     private final UserRepository userRepository;
+    private final ConnectedUsers connectedUsers;
     
     @OnEvent(MARK_MESSAGES_AS_READ)
     public void handleMarkAsRead(SocketIOClient client, MarkAsReadRequest data) {
@@ -87,7 +85,7 @@ public class MessageReadHandler {
     }
     
     private String getUserId(SocketIOClient client) {
-        var user = (SocketUser) client.get("user");
-        return user.id();
+        var user = connectedUsers.getBySocketId(client.getSessionId().toString());
+        return user != null ? user.id() : null;
     }
 }
